@@ -4,21 +4,26 @@ from datetime import datetime
 
 # --- INVENTORY ---
 INVENTORY = [
-    {"Name": "C5FIRSIT01", "Hardware": "FortiGate 61E", "Current": "FortiOS 7.4.7M"},
-    {"Name": "C6FIRSIT01", "Hardware": "FortiGate 61E", "Current": "FortiOS 7.4.7M"},
-    {"Name": "FW-MAIN-ONEDC-1", "Hardware": "FortiGate 1100E", "Current": "FortiOS 7.4.7M"},
-    {"Name": "FW-MAIN-ONEDC-2", "Hardware": "FortiGate 1100E", "Current": "FortiOS 7.4.7M"},
-    {"Name": "FW-EDGE-ONEDC-1", "Hardware": "FortiGate 200F", "Current": "FortiOS 7.4.7M"},
-    {"Name": "FW-EDGE-ONEDC-2", "Hardware": "FortiGate 200F", "Current": "FortiOS 7.4.7M"},
-    {"Name": "FORTIMANAGER", "Hardware": "FortiManager VM64", "Current": "FortiManager 7.6.4"},
-    {"Name": "C5_RV_SW01", "Hardware": "Cisco Catalyst 9410R", "Current": "IOS-XE 17.9.4"},
-    {"Name": "C6_RV_SW01", "Hardware": "Cisco Catalyst 9410R", "Current": "IOS-XE 17.9.4"},
-    {"Name": "CS-ONEDC-1", "Hardware": "Cisco Nexus 93240YC-FX2", "Current": "NX-OS 10.3(6)(M)"},
-    {"Name": "CS-ONEDC-1-spare", "Hardware": "Cisco Nexus 93240YC-FX2", "Current": "NX-OS 10.4(5)(M)"},
-    {"Name": "CS-ONEDC-2", "Hardware": "Cisco Nexus 93240YC-FX2", "Current": "NX-OS 10.3(6)(M)"},
-    {"Name": "CS-ONEDC-2-spare", "Hardware": "Cisco Nexus 93240YC-FX2", "Current": "NX-OS 10.4(5)(M)"},
-    {"Name": "RP-ONEDC-1", "Hardware": "F5 BIG-IP VE-200M", "Current": "BIG-IP 17.1.3"},
-    {"Name": "RP-ONEDC-2", "Hardware": "F5 BIG-IP VE-200M", "Current": "BIG-IP 17.1.3"},
+    # Fortinet - Various active branches
+    {"Name": "US-EDGE-FW01", "Hardware": "FortiGate 100F", "Current": "FortiOS 7.0.12M"},
+    {"Name": "EU-DC-CLUSTER-A", "Hardware": "FortiGate 1500D", "Current": "FortiOS 7.2.5M"},
+    {"Name": "LAB-SANDBOX-FG", "Hardware": "FortiGate VM64-KVM", "Current": "FortiOS 6.4.14M"},
+    
+    # FortiManager - Different branch
+    {"Name": "GLOBAL-FMG-01", "Hardware": "FortiManager 3000G", "Current": "FortiManager 7.4.2"},
+    
+    # Cisco Catalyst - Diverse IOS-XE releases
+    {"Name": "FLOOR1-ASW-01", "Hardware": "Cisco Catalyst 9300-48P", "Current": "IOS-XE 17.6.5"},
+    {"Name": "CORE-VSS-STACK", "Hardware": "Cisco Catalyst 9500", "Current": "IOS-XE 17.3.3"},
+    
+    # Cisco Nexus - NX-OS releases
+    {"Name": "LEAF-POD1-101", "Hardware": "Cisco Nexus 93180YC-EX", "Current": "NX-OS 9.3(10)"},
+    {"Name": "SPINE-CORE-201", "Hardware": "Cisco Nexus 9504", "Current": "NX-OS 10.2(3)M"},
+    
+    # F5 BIG-IP - Older and modern branches
+    {"Name": "PROD-LTM-LB01", "Hardware": "F5 BIG-IP i5800", "Current": "BIG-IP 15.1.8"},
+    {"Name": "EDGE-WAF-02", "Hardware": "F5 BIG-IP i2800", "Current": "BIG-IP 16.1.3"},
+    {"Name": "GLOBAL-GTM-VE", "Hardware": "F5 BIG-IP VE-1G", "Current": "BIG-IP 17.0.0"}
 ]
 
 class InfrastructureAudit:
