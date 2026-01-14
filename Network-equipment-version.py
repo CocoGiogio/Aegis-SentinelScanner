@@ -1,8 +1,9 @@
 import requests
 import re
-import urllib.parse
+from datetime import datetime
 
-inventory = [
+# --- INVENTORY ---
+INVENTORY = [
     {"Name": "C5FIRSIT01", "Hardware": "FortiGate 61E", "Current": "FortiOS 7.4.7M"},
     {"Name": "C6FIRSIT01", "Hardware": "FortiGate 61E", "Current": "FortiOS 7.4.7M"},
     {"Name": "FW-MAIN-ONEDC-1", "Hardware": "FortiGate 1100E", "Current": "FortiOS 7.4.7M"},
@@ -20,179 +21,145 @@ inventory = [
     {"Name": "RP-ONEDC-2", "Hardware": "F5 BIG-IP VE-200M", "Current": "BIG-IP 17.1.3"},
 ]
 
-urls = {
-    "Cisco Nexus": "https://sec.cloudapps.cisco.com/security/center/softwarechecker.x?productSelected={product}&versionNamesSelected={version}&selectedMethod=A",
-    "Cisco Catalyst": "https://sec.cloudapps.cisco.com/security/center/softwarechecker.x?productSelected={product}&versionNamesSelected={version}&selectedMethod=A",
-    "FortiGate": "https://www.fortiguard.com/psirt?filter=1&product=FortiOS-6K7K%2CFortiOS&version={version}",
-    "FortiManager": "https://www.fortiguard.com/psirt?filter=1&product=FortiManager&version={version}",
-    "F5 BIG-IP": "https://my.f5.com/manage/s/article/K33062581"
-}
+class InfrastructureAudit:
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        self.cache = {}
 
-fallback = {
-    "Cisco Nexus": "NX-OS 10.4(6)M",
-    "Cisco Catalyst": "IOS XE 17.9.6a",
-    "FortiGate": "FortiOS 7.4.8",
-    "FortiManager": "FortiManager 7.4.7",
-    "F5 BIG-IP": "BIG-IP 17.5.1"
-}
+    def to_tuple(self, v):
+        nums = re.findall(r'\d+', str(v))
+        return tuple(int(n) for n in nums) if nums else (0, 0, 0)
 
-def fetch_recommended(url, pattern, default):
-    try:
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-        text = " ".join(resp.text.split())
-        matches = re.findall(pattern, text)
-        if not matches:
-            return default
-        def version_key(v):
-            nums = re.findall(r'\d+', v)
-            return tuple(int(n) for n in nums)
-        best = max(matches, key=version_key)
-        return best
-    except Exception:
-        return default
+    def fetch_fortinet_versions(self, product):
+        url = f"https://www.fortiguard.com/psirt?product={product}"
+        print(f"[FETCH] Accessing Fortinet PSIRT for {product}...")
+        try:
+            resp = self.session.get(url, timeout=15)
+            # Targeting 7.x.x versions
+            found = re.findall(r'\b(7\.[0-6]\.[0-9])\b', resp.text)
+            versions = sorted(list(set(found)), key=self.to_tuple, reverse=True)
+            print(f"[DEBUG] Found {len(versions)} versions for {product}.")
+            return versions
+        except Exception as e:
+            print(f"[ERROR] Connection failed for Fortinet: {e}")
+            return []
 
-def parse_version(s):
-    nums = re.findall(r'\d+', s)
-    return tuple(int(n) for n in nums) if nums else ()
+    def get_recommendations(self, hw, current):
+        curr_t = self.to_tuple(current)
+        
+        # --- FORTINET LOGIC ---
+        if "Forti" in hw:
+            key = "FortiOS" if "Gate" in hw else "FortiManager"
+            if key not in self.cache:
+                self.cache[key] = self.fetch_fortinet_versions(key)
+            
+            data = self.cache[key]
+            maint_v = next((v for v in data if self.to_tuple(v)[:2] == curr_t[:2]), "7.4.8")
+            evo_v = next((v for v in data if self.to_tuple(v)[:2] > curr_t[:2]), "7.6.4")
+            
+            # Suffix (M) only for FortiOS
+            suffix = " (M)" if "Gate" in hw else ""
+            return f"{maint_v}{suffix}", f"{evo_v}{suffix}"
 
-recommended_versions = {
-    "Cisco Nexus": fetch_recommended(urls["Cisco Nexus"].format(product="nx-os", version=""), r"\d+\.\d+\(\d+\)M", fallback["Cisco Nexus"]),
-    "Cisco Catalyst": fetch_recommended(urls["Cisco Catalyst"].format(product="ios_xe", version=""), r"\d+\.\d+\.\d+[a-z]?", fallback["Cisco Catalyst"]),
-    "FortiGate": fetch_recommended(urls["FortiGate"].format(version=""), r"\d+\.\d+\.\d+", fallback["FortiGate"]),
-    "FortiManager": fetch_recommended(urls["FortiManager"].format(version=""), r"\d+\.\d+\.\d+", fallback["FortiManager"]),
-    "F5 BIG-IP": fetch_recommended(urls["F5 BIG-IP"], r"BIG-IP\s*\d+(?:\.\d+)+", fallback["F5 BIG-IP"])
-}
+        # --- CISCO CATALYST (IOS-XE) ---
+        if "Catalyst" in hw:
+            # Current branch is 17.9.x, Next stable is 17.12.x
+            return "17.9.6a", "17.12.4"
 
-def extract_version_token(s):
-    # extrait un token de version utilisable dans les URLs (ex: 17.9.4 ou 10.3(6) ou 7.4.7)
-    if not s:
-        return ""
-    # cherche d'abord pattern comme 10.3(6)
-    m = re.search(r'\d+\.\d+\(\d+\)', s)
-    if m:
-        return m.group(0)
-    # sinon cherche séquence classique 1.2.3...
-    m = re.search(r'\d+(?:\.\d+)+', s)
-    return m.group(0) if m else ""
+        # --- CISCO NEXUS (NX-OS) ---
+        if "Nexus" in hw:
+            # (M) is a standard suffix for Nexus Mature releases
+            return "10.4(6)M", "10.5(1)M"
 
-def fetch_cves_from_url(url):
-    try:
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-        text = resp.text
-        # recherche des CVE
-        cves = re.findall(r'CVE-\d{4}-\d{4,7}', text, flags=re.IGNORECASE)
-        cves = sorted(set([cve.upper() for cve in cves]))
-        return cves
-    except Exception:
-        return None
+        # --- F5 BIG-IP ---
+        if "BIG-IP" in hw:
+            # If current is 17.1.3, Maintenance is latest of 17.1 branch, Evolution is 18.x or next major
+            return "17.1.4", "18.1.0"
+        
+        return "N/A", "N/A"
 
-def get_vulnerabilities(hw, current):
-    token = extract_version_token(current)
-    if not token:
-        return "Unknown"
-    # Cisco (Catalyst/Nexus)
-    if "Cisco Catalyst" in hw or "Cisco Nexus" in hw:
-        product = "ios_xe" if "Catalyst" in hw else "nx-os"
-        url = urls["Cisco Catalyst"].format(product=product, version=urllib.parse.quote_plus(token))
-        cves = fetch_cves_from_url(url)
-        if cves is None:
-            return "Unknown"
-        return ", ".join(cves) if cves else "None found"
-    # FortiGate
-    if "FortiGate" in hw:
-        # use FortiOS product query as provided
-        url = urls["FortiGate"].format(version=urllib.parse.quote_plus(token))
-        cves = fetch_cves_from_url(url)
-        if cves is None:
-            return "Unknown"
-        return ", ".join(cves) if cves else "None found"
-    # FortiManager
-    if "FortiManager" in hw:
-        url = urls["FortiManager"].format(version=urllib.parse.quote_plus(token))
-        cves = fetch_cves_from_url(url)
-        if cves is None:
-            return "Unknown"
-        return ", ".join(cves) if cves else "None found"
-    # F5 BIG-IP and others: no scraping implemented for F5 in this script
-    return "Not Supported"
+    def run(self):
+        print("="*60)
+        print(f"STARTING INFRASTRUCTURE AUDIT - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print("="*60)
+        results = []
+        for item in INVENTORY:
+            maint, evo = self.get_recommendations(item["Hardware"], item["Current"])
+            v_curr = self.to_tuple(item["Current"])
+            v_maint = self.to_tuple(maint)
+            
+            # Logic: If current version < maintenance version -> Upgrade Needed
+            status = "OK" if v_curr >= v_maint else "Upgrade Needed"
+            
+            # Edge case for FortiManager already on latest
+            if "FortiManager" in item["Hardware"] and "7.6.4" in item["Current"]:
+                status = "OK"
+                maint = "7.6.4"
+                evo = "N/A"
 
-results = []
-for item in inventory:
-    hw = item["Hardware"]
-    current = item["Current"]
-    if "Cisco Nexus" in hw:
-        recommended = recommended_versions["Cisco Nexus"]
-    elif "Cisco Catalyst" in hw:
-        recommended = recommended_versions["Cisco Catalyst"]
-    elif "FortiGate" in hw:
-        recommended = recommended_versions["FortiGate"]
-    elif "FortiManager" in hw:
-        recommended = recommended_versions["FortiManager"]
-    elif "F5 BIG-IP" in hw:
-        recommended = recommended_versions["F5 BIG-IP"]
-    else:
-        recommended = "Not Found"
+            results.append({**item, "maint": maint, "evo": evo, "status": status})
+            print(f"[DONE] {item['Name']} processed.")
+        return results
 
-    cv_t = parse_version(current)
-    rv_t = parse_version(recommended)
+def generate_report(data):
+    rows = ""
+    for r in data:
+        status_color = "#dc2626" if r["status"] == "Upgrade Needed" else "#16a34a"
+        bg_color = "#fff5f5" if r["status"] == "Upgrade Needed" else "#f0fff4"
+        rows += f"""<tr style="background:{bg_color};">
+            <td style="padding:12px; font-weight:bold;">{r['Name']}</td>
+            <td>{r['Hardware']}</td>
+            <td><code>{r['Current']}</code></td>
+            <td style="color:#2563eb; font-weight:bold;">{r['maint']}</td>
+            <td style="color:#7c3aed;">{r['evo']}</td>
+            <td style="color:{status_color}; font-weight:bold;">{r['status']}</td>
+        </tr>"""
 
-    if not cv_t or not rv_t:
-        status = "Unknown"
-    else:
-        if cv_t == rv_t:
-            status = "OK"
-        elif cv_t < rv_t:
-            status = "Upgrade Needed"
-        else:
-            status = "Current newer than recommended"
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Infrastructure Audit Report</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#f1f5f9; padding:40px; color:#1e293b; }}
+            .container {{ max-width: 1200px; margin: auto; background:white; padding:25px; border-radius:12px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); }}
+            table {{ width:100%; border-collapse:collapse; margin-top:20px; }}
+            th {{ background:#1e293b; color:white; padding:12px; text-align:left; font-size:12px; text-transform:uppercase; }}
+            td {{ border-bottom: 1px solid #e2e8f0; font-size:14px; padding:10px; }}
+            h2 {{ margin-top:0; color:#0f172a; }}
+            .info {{ color:#64748b; font-size:14px; margin-bottom:20px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Infrastructure Firmware Audit Report</h2>
+            <div class="info">Generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')}</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Device Name</th>
+                        <th>Hardware Model</th>
+                        <th>Current Version</th>
+                        <th>Maintenance (Same Branch)</th>
+                        <th>Evolution (Next Gen)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    
+    filename = "infra_audit_report.html"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"\n[FINISH] Audit complete. Report generated: {filename}")
 
-    vulns = get_vulnerabilities(hw, current)
-
-    results.append({
-        "Name": item["Name"],
-        "Model": hw,
-        "Current Version": current,
-        "Recommended Version": recommended,
-        "Status": status,
-        "Vulnerabilities": vulns
-    })
-
-# Génération HTML
-html_rows = []
-for r in results:
-    if r["Status"] == "OK":
-        color = "#d1ffd1"
-    elif r["Status"] == "Upgrade Needed":
-        color = "#ffd1d1"
-    elif r["Status"] == "Current newer than recommended":
-        color = "#fff0c2"
-    else:
-        color = "#f0f0f0"
-    vuln_cell = r["Vulnerabilities"]
-    # échappement minimal pour les cellules (on suppose pas de HTML malveillant dans les CVE)
-    row = (
-        f"<tr style='background:{color};'>"
-        f"<td>{r['Name']}</td>"
-        f"<td>{r['Model']}</td>"
-        f"<td>{r['Current Version']}</td>"
-        f"<td>{r['Recommended Version']}</td>"
-        f"<td>{r['Status']}</td>"
-        f"<td>{vuln_cell}</td>"
-        f"</tr>"
-    )
-    html_rows.append(row)
-
-html_content = f"""
-<html><head><meta charset='utf-8'><title>Rapport</title></head><body>
-<h1>Rapport versions recommandées</h1>
-<table border='1' style='border-collapse:collapse;width:100%;'>
-<tr><th>Name</th><th>Model</th><th>Current</th><th>Recommended</th><th>Status</th><th>Vulnerabilities</th></tr>
-{''.join(html_rows)}
-</table></body></html>
-"""
-
-with open("PYTHON/VERSION_SCANNER/report_scraping.html", "w", encoding="utf-8") as f:
-    f.write(html_content)
-print("Rapport généré : PYTHON/VERSION_SCANNER/report_scraping.html")
+if __name__ == "__main__":
+    audit = InfrastructureAudit()
+    final_results = audit.run()
+    generate_report(final_results)
