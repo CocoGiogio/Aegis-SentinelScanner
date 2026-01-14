@@ -1,6 +1,6 @@
-# AegisVersion-Sentinel 🛡️
+# Aegis-SentinelScanner 🛡️
 
-**AegisVersion-Sentinel** is an automated Python-based auditing tool designed to monitor and compare network infrastructure firmware versions. It proactively scrapes manufacturer data to recommend maintenance and evolution paths for critical network assets.
+**Aegis-SentinelScanner** is an automated Python-based auditing tool designed to monitor and compare network infrastructure firmware versions. It proactively scrapes manufacturer data to recommend maintenance and evolution paths for critical network assets.
 
 ---
 
